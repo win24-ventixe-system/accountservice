@@ -38,38 +38,37 @@ public class AccountsController(IAccountService accountService, UserManager<User
             ModelState.AddModelError("Email", "An account with this email already exists.");
             return BadRequest(ModelState);
         }
-        //Prepare and call the account service to create the user
-        var result = await _accountService.SignUpAsync(model);
-
-        if (result.Succeeded)
+        var userEntity = new UserEntity
         {
-            //Get the newly created user and sign them in automatically
-            var user = await _userManager.FindByEmailAsync(email);
-            if (user != null)
+            UserName = model.Email,
+            Email = model.Email,
+            FirstName = model.FirstName, 
+            LastName = model.LastName    
+        };
+        //Prepare and call the account service to create the user
+        var result = await _userManager.CreateAsync(userEntity, model.Password); 
+
+       
+            if (result.Succeeded)
             {
-                // Confirm email and update
-                user.EmailConfirmed = true;
-                await _userManager.UpdateAsync(user);  // Update the user in the database
-
-
-                // Automatically sign in the user
-                await _signInManager.SignInAsync(user, isPersistent: false);
+                await _userManager.AddToRoleAsync(userEntity, "User"); // Add to role
+                                                                       // Auto-sign-in after local signup
+                await _signInManager.SignInAsync(userEntity, isPersistent: false);
                 return Ok(new { message = "User signed up and logged in", redirect = returnUrl });
             }
 
-            // If we can't sign in automatically for some reason, redirect to sign in page
-            return RedirectToAction("SignIn", "Auth");
-        }
 
-        // If sign-up failed, return errors
-        return BadRequest(new { message = "Sign-up failed" });
+        // If we can't sign in automatically for some reason, redirect to sign in page
+        return BadRequest(new { message = "Sign-up failed", errors = result.Errors.Select(e => e.Description).ToArray() });
     }
-    
+
+
+
 
     #endregion
 
     #region SignIn
-   
+
 
     [HttpPost("signin")]
     public async Task<IActionResult> SignIn([FromBody] SignInFormData model, string returnUrl = "/")
@@ -77,15 +76,6 @@ public class AccountsController(IAccountService accountService, UserManager<User
 
         if (!ModelState.IsValid)
             return BadRequest(ModelState);
-
-        //var signInFormData = new SignInFormData
-        //{
-        //    Email = model.Email,
-        //    Password = model.Password,
-        //    IsPersistent = model.IsPersistent
-        //};
-
-
         var result = await _accountService.SignInAsync(model);
 
         if (result.Succeeded)
@@ -117,7 +107,7 @@ public class AccountsController(IAccountService accountService, UserManager<User
 
     #region External Authentication
 
-    [HttpGet]
+    [HttpGet("ExternalSignIn")]
     public IActionResult ExternalSignIn(string provider, string returnUrl = null!)
     {
         if (string.IsNullOrEmpty(provider))
@@ -152,17 +142,12 @@ public class AccountsController(IAccountService accountService, UserManager<User
         }
         else
         {
-            string firstName = string.Empty;
-            string lastName = string.Empty;
-            try
-            {
-                firstName = info.Principal.FindFirstValue(ClaimTypes.GivenName)!;
-                lastName = info.Principal.FindFirstValue(ClaimTypes.Surname)!;
-            }
-            catch { }
-
             string email = info.Principal.FindFirstValue(ClaimTypes.Email)!;
             string username = $"ext_{info.LoginProvider.ToLower()}_{email}";
+            string? firstName = info.Principal.FindFirstValue(ClaimTypes.GivenName); // Can be null
+            string? lastName = info.Principal.FindFirstValue(ClaimTypes.Surname);   // Can be null
+            string? userImage = info.Principal.FindFirstValue("picture"); // Common claim for Google profile picture
+
 
 
             var user = new UserEntity { UserName = username, Email = email, FirstName = firstName, LastName = lastName };
@@ -185,7 +170,7 @@ public class AccountsController(IAccountService accountService, UserManager<User
 
     #endregion
 
-    [HttpGet]
+    [HttpGet("Signout")]
     public async Task<IActionResult> Logout()
     {
         await _signInManager.SignOutAsync();
