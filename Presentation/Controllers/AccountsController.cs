@@ -24,7 +24,7 @@ public class AccountsController(IAccountService accountService, UserManager<User
     
 
     [HttpPost("signup")]
-    public async Task<IActionResult> SignUp([FromBody] SignUpFormData model, string returnUrl = "/")
+    public async Task<IActionResult> SignUp([FromBody] SignUpFormData model)
     {
         if (!ModelState.IsValid)
             return BadRequest(ModelState);
@@ -54,7 +54,7 @@ public class AccountsController(IAccountService accountService, UserManager<User
                 await _userManager.AddToRoleAsync(userEntity, "User"); // Add to role
                                                                        // Auto-sign-in after local signup
                 await _signInManager.SignInAsync(userEntity, isPersistent: false);
-                return Ok(new { message = "User signed up and logged in", redirect = returnUrl });
+                return Ok(new { message = "User signed up and logged in", redirect = "/" });
             }
 
 
