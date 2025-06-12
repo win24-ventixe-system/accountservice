@@ -71,7 +71,7 @@ public class AccountsController(IAccountService accountService, UserManager<User
 
 
     [HttpPost("signin")]
-    public async Task<IActionResult> SignIn([FromBody] SignInFormData model, string returnUrl = "/")
+    public async Task<IActionResult> SignIn([FromBody] SignInFormData model)
     {
 
         if (!ModelState.IsValid)
@@ -93,7 +93,7 @@ public class AccountsController(IAccountService accountService, UserManager<User
                     user.FirstName,
                     user.LastName
                 },
-                redirectUrl = returnUrl
+                redirectUrl = "/"
             });
         }
 
