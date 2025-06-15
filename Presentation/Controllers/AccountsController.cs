@@ -105,7 +105,7 @@ public class AccountsController(IAccountService accountService, UserManager<User
 
             if (user == null)
             {
-                return Unauthorized(new { message = "User not found after successful sign-in attempt." });
+                return Unauthorized(new { error = "User with this email does not exist. Please sign up or check your credentials." });
             }
             // Prepare claims for the JWT
             var claims = new List<Claim>
