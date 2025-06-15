@@ -97,23 +97,26 @@ public class AccountsController(IAccountService accountService, UserManager<User
 
         if (!ModelState.IsValid)
             return BadRequest(ModelState);
-        var result = await _accountService.SignInAsync(model);
 
+        // Find the user by email first
+        var userEntity = await _userManager.FindByEmailAsync(model.Email!);
+
+        if (userEntity == null)
+        {
+            return Unauthorized(new { error = "User with this email does not exist. Please sign up or check your info" });
+        }
+        var result = await _signInManager.PasswordSignInAsync(userEntity, model.Password!, model.IsPersistent, lockoutOnFailure: false);
+        
         if (result.Succeeded)
         {
-            var user = await _userManager.FindByEmailAsync(model.Email!);
 
-            if (user == null)
-            {
-                return Unauthorized(new { error = "User with this email does not exist. Please sign up or check your credentials." });
-            }
             // Prepare claims for the JWT
             var claims = new List<Claim>
             {
-                new Claim(ClaimTypes.NameIdentifier, user.Id),
-                new Claim(ClaimTypes.Email, user.Email!),
-                // Add roles:
-                // var roles = await _userManager.GetRolesAsync(user);
+                new Claim(ClaimTypes.NameIdentifier, userEntity.Id),
+                new Claim(ClaimTypes.Email, userEntity.Email!)
+                // If you need roles in the token:
+                // var roles = await _userManager.GetRolesAsync(userEntity);
                 // foreach (var role in roles)
                 // {
                 //     claims.Add(new Claim(ClaimTypes.Role, role));
@@ -129,19 +132,19 @@ public class AccountsController(IAccountService accountService, UserManager<User
                 token = jwtToken,
                 user = new
                 {
-                    user!.Id,
-                    user.Email,
-                    user.FirstName,
-                    user.LastName
-                },
+                    userEntity!.Id,
+                    userEntity.Email,
+                    userEntity.FirstName,
+                    userEntity.LastName
+                },      
                 redirectUrl = "/"
             });
         }
 
         return Unauthorized(new
         {
-            message = result.Error ?? "Incorrect email or password."
-        });
+             error = "Incorrect email or password." });
+   
 
     }
     #endregion
