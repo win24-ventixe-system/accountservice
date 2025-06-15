@@ -238,7 +238,7 @@ public class AccountsController(IAccountService accountService, UserManager<User
     }
 
     [HttpPost("verify-email")]
-    public IActionResult Verifiy(VerifyVerificationCodeRequest request)
+    public IActionResult Verify(VerifyVerificationCodeRequest request)
     {
         if (!ModelState.IsValid)
             return BadRequest(new { Error = "Invalid or expired code." });
