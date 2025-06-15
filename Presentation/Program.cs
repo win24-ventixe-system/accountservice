@@ -2,17 +2,25 @@ using Data.Entities;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.OpenApi.Models; // Required for OpenApiInfo
 using Presentation.Data;
+using Presentation.Helpers;
 using Presentation.Services;
 using System;
-using Microsoft.OpenApi.Models; // Required for OpenApiInfo
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
+using Azure.Communication.Email;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-builder.Services.AddControllers();
 
-// --- FIX 1 & 2: Remove AddOpenApi(), use standard SwaggerGen for API docs ---
+builder.Services.AddControllers();
+builder.Services.AddSingleton(x => new EmailClient(builder.Configuration["ACS:ConnectionString"]));
+builder.Services.AddScoped<IAccountService, AccountService>();
+builder.Services.AddScoped<IVerificationService, VerificationService>();
+builder.Services.AddMemoryCache();
+
 builder.Services.AddSwaggerGen(options =>
 {
     options.SwaggerDoc("v1", new OpenApiInfo { Title = "Account Service API", Version = "v1" });
@@ -20,7 +28,7 @@ builder.Services.AddSwaggerGen(options =>
 });
 
 
-// Configure CORS policy - Define it once, use it once.
+// CORS policy 
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy => // Named policy
@@ -32,9 +40,8 @@ builder.Services.AddCors(options =>
     });
 });
 
-builder.Services.AddScoped<IAccountService, AccountService>();
 
-// --- FIX 4: Ensure correct connection string name ---
+
 builder.Services.AddDbContext<DataContext>(x => x.UseSqlServer(builder.Configuration.GetConnectionString("SqlConnection"))); 
 
 builder.Services.AddIdentity<UserEntity, IdentityRole>(x =>
@@ -58,14 +65,43 @@ builder.Services.ConfigureApplicationCookie(x =>
     x.Cookie.IsEssential = true;
     x.ExpireTimeSpan = TimeSpan.FromHours(1);
     x.SlidingExpiration = true;
-    x.Cookie.SameSite = SameSiteMode.None; // Be cautious with SameSiteMode.None; requires SecurePolicy.Always
+    x.Cookie.SameSite = SameSiteMode.None; 
     x.Cookie.SecurePolicy = CookieSecurePolicy.Always;
 });
-
+// JWT Bearer Authentication 
 builder.Services.AddAuthentication(x =>
 {
-    x.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+    x.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme; 
+    x.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+    x.DefaultScheme = JwtBearerDefaults.AuthenticationScheme; 
 })
+        .AddJwtBearer(options =>
+        {
+            options.TokenValidationParameters = new TokenValidationParameters
+            {
+                ValidateIssuer = true,
+                ValidateAudience = true,
+                ValidateLifetime = true,
+                ValidateIssuerSigningKey = true,
+                ValidIssuer = builder.Configuration["Jwt:Issuer"],
+                ValidAudience = builder.Configuration["Jwt:Audience"],
+                IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"] ?? throw new InvalidOperationException("JWT Key not configured.")))
+            };
+            //  hooks for more detailed error handling or logging during token validation
+            options.Events = new JwtBearerEvents
+            {
+                OnAuthenticationFailed = context =>
+                {
+                    Console.WriteLine("Authentication failed: " + context.Exception.Message);
+                    return Task.CompletedTask;
+                },
+                OnTokenValidated = context =>
+                {
+                    Console.WriteLine("Token validated successfully!");
+                    return Task.CompletedTask;
+                }
+            };
+        })
     .AddCookie()
     .AddGoogle(x =>
     {
@@ -79,10 +115,12 @@ builder.Services.Configure<CookiePolicyOptions>(options =>
     options.CheckConsentNeeded = context => !context.Request.Cookies.ContainsKey("cookieConsent");
     options.MinimumSameSitePolicy = SameSiteMode.Lax;
 });
+builder.Services.AddScoped<GenerateJwtToken>();
+
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
+//  HTTP request pipeline.
 
 app.UseSwagger();
 app.UseSwaggerUI(c =>
@@ -104,7 +142,7 @@ app.UseCors("AllowAll");
 app.UseAuthentication();
 app.UseAuthorization();
 
-// ROLE Seeding (This block runs on app startup and is generally okay)
+// ROLE Seeding 
 using (var scope = app.Services.CreateScope())
 {
     var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
@@ -121,7 +159,7 @@ using (var scope = app.Services.CreateScope())
 
     var userManager = scope.ServiceProvider.GetRequiredService<UserManager<UserEntity>>();
     //var user = new UserEntity { UserName = "admin@domain.com", Email = "admin@domain.com" };
-    var user = new UserEntity { UserName = "admin@domain.com", Email = "admin@domain.com", UserImage = "/images/logo_img.svg" };
+    var user = new UserEntity { UserName = "admin@domain.com", Email = "admin@domain.com", UserImage = "" };
 
 
     var userExists = await userManager.Users.AnyAsync(x => x.Email == user.Email);
