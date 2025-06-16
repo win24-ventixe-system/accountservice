@@ -1,17 +1,20 @@
 ﻿using Azure;
 using Azure.Communication.Email;
+using Data.Entities;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Azure;
 using Microsoft.Extensions.Caching.Memory;
 using Presentation.Models;
 using System.Diagnostics;
 
 namespace Presentation.Services;
-public class VerificationService(IConfiguration configuration, EmailClient emailClient, IMemoryCache cache) : IVerificationService
+public class VerificationService(IConfiguration configuration, EmailClient emailClient, IMemoryCache cache, UserManager<UserEntity> userManager) : IVerificationService
 {
     private readonly IConfiguration _configuration = configuration;
     private readonly EmailClient _emailClient = emailClient;
     private readonly IMemoryCache _cache = cache;
     private static readonly Random _random = new();
+    private readonly UserManager<UserEntity> _userManager = userManager;
 
     public async Task<VerificationServiceResult> SenderVerificationCodeAsync(SendVerificationCodeRequest request)
     {
@@ -108,7 +111,7 @@ public class VerificationService(IConfiguration configuration, EmailClient email
             });
             return new VerificationServiceResult { Succeeded = true, Message = "Verification Email sent successfully." };
         }
-        catch (Exception ex) 
+        catch (Exception ex)
         {
             Debug.WriteLine(ex);
             return new VerificationServiceResult { Succeeded = false, Error = "Failed to send verificaiton email." };
@@ -118,23 +121,59 @@ public class VerificationService(IConfiguration configuration, EmailClient email
 
     }
 
-    public void SaveVerificationCode (SaveVerificationCodeRequest request)
+    public void SaveVerificationCode(SaveVerificationCodeRequest request)
     {
         _cache.Set(request.Email.ToLowerInvariant(), request.Code, request.ValidFor);
     }
 
-    public VerificationServiceResult VerifyVerificationCode(VerifyVerificationCodeRequest request)
+    public async Task<VerificationServiceResult> VerifyVerificationCodeAsync(VerifyVerificationCodeRequest request)
     {
         var key = request.Email.ToLowerInvariant();
+
         if (_cache.TryGetValue(key, out string? storedCode))
         {
-            if(storedCode == request.Code)
+            if (storedCode == request.Code)
             {
-                _cache.Remove(key);
-                return new VerificationServiceResult { Succeeded = true, Message = "Verificatio succesful!" };
-            }
+                // Code matched successfully. Proceed with user confirmation.
 
+                // Retrieve the user from the database
+                var user = await _userManager.FindByEmailAsync(request.Email);
+                if (user == null)
+                {
+                    return new VerificationServiceResult { Succeeded = false, Error = "User not found for provided email." };
+                }
+
+                // Set EmailConfirmed to true
+                user.EmailConfirmed = true;
+
+                // Update the user in the database
+                var updateResult = await _userManager.UpdateAsync(user);
+
+                if (updateResult.Succeeded)
+                {
+                    _cache.Remove(key); // Remove code from cache only if DB update succeeded
+                    return new VerificationServiceResult { Succeeded = true, Message = "Verification successful!" };
+                }
+                else
+                {
+                    // Handle cases where UserManager.UpdateAsync fails
+                    var errors = string.Join(", ", updateResult.Errors.Select(e => e.Description));
+                    return new VerificationServiceResult { Succeeded = false, Error = $"Failed to update user email confirmation status: {errors}" };
+                }
+            }
+            else
+            {
+              
+                return new VerificationServiceResult { Succeeded = false, Error = "Invalid verification code!" };
+            }
         }
-        return new VerificationServiceResult { Succeeded = false, Error = "INvalid or expired verification code!" };
+        else
+        {
+            
+            return new VerificationServiceResult { Succeeded = false, Error = "Verification code expired or not found!" };
+        }
     }
 }
+
+
+

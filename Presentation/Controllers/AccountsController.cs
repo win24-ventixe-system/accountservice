@@ -105,6 +105,9 @@ public class AccountsController(IAccountService accountService, UserManager<User
         {
             return Unauthorized(new { error = "User with this email does not exist. Please sign up or check your info" });
         }
+
+        var roles = await _userManager.GetRolesAsync(userEntity);
+
         var result = await _signInManager.PasswordSignInAsync(userEntity, model.Password!, model.IsPersistent, lockoutOnFailure: false);
         
         if (result.Succeeded)
@@ -122,8 +125,12 @@ public class AccountsController(IAccountService accountService, UserManager<User
                 //     claims.Add(new Claim(ClaimTypes.Role, role));
                 // }
             };
+            foreach (var role in roles)
+            {
+                claims.Add(new Claim(ClaimTypes.Role, role));
+            }
 
-            // NEW: Generate the JWT token string
+            // Generate the JWT token string
             var jwtToken = _generateJwtToken.CreateJwtToken(claims);
 
             return Ok(new
@@ -193,8 +200,8 @@ public class AccountsController(IAccountService accountService, UserManager<User
         {
             string email = info.Principal.FindFirstValue(ClaimTypes.Email)!;
             string username = $"ext_{info.LoginProvider.ToLower()}_{email}";
-            string? firstName = info.Principal.FindFirstValue(ClaimTypes.GivenName); // Can be null
-            string? lastName = info.Principal.FindFirstValue(ClaimTypes.Surname);   // Can be null
+            string? firstName = info.Principal.FindFirstValue(ClaimTypes.GivenName); 
+            string? lastName = info.Principal.FindFirstValue(ClaimTypes.Surname);   
             string? userImage = info.Principal.FindFirstValue("picture");
 
 
@@ -241,12 +248,12 @@ public class AccountsController(IAccountService accountService, UserManager<User
     }
 
     [HttpPost("verify-email")]
-    public IActionResult Verify(VerifyVerificationCodeRequest request)
+    public async Task<IActionResult> Verify(VerifyVerificationCodeRequest request)
     {
         if (!ModelState.IsValid)
             return BadRequest(new { Error = "Invalid or expired code." });
 
-        var result = _verificationService.VerifyVerificationCode(request);
+        var result = await _verificationService.VerifyVerificationCodeAsync(request);
         return result.Succeeded ? Ok(result) : StatusCode(500, result);
     }
 }

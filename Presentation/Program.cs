@@ -133,11 +133,12 @@ app.UseSwaggerUI(c =>
 
 app.UseHttpsRedirection();
 app.UseStaticFiles(); 
-app.UseCookiePolicy(); 
+app.UseCookiePolicy();
+app.UseCors("AllowAll");
 
 app.UseRouting(); 
 
-app.UseCors("AllowAll"); 
+
 
 app.UseAuthentication();
 app.UseAuthorization();
